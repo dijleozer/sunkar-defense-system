@@ -5,23 +5,36 @@ import cv2
 import threading
 import time
 import math
+import os
+import json
 
-from manuel_mode_control import ManualModeControl
 from laser_control import LaserControl
 from serial_comm import SerialComm
-from joystick_controller import JoystickController
+# from manuel_mode_control import ManualModeControl  # Removed for single joystick logic
+# from joystick_controller import JoystickController  # No need to import here, passed from main
 
 class SunkarGUI(ctk.CTk):
-    def __init__(self, camera_manager):
+    def __init__(self, camera_manager, joystick, laser_control=None, autonomous_manager=None):
         super().__init__()
         self.title("SUNKAR Defense Interface")
         self.geometry("1280x680")
         self.resizable(False, False)
         self.camera_manager = camera_manager
-        self.manual_control = None
-        self.serial_comm = SerialComm(port="COM3")  # Arduino’nun bağlı olduğu doğru portu yaz
-        self.laser_control = LaserControl(self.serial_comm)
-        self.joystick = JoystickController(port="COM3", mode="manual")
+        self.joystick = joystick  # Use the passed-in joystick instance
+        
+        # Use shared laser_control if provided, otherwise create new one
+        if laser_control:
+            self.laser_control = laser_control
+        else:
+            self.serial_comm = SerialComm(port="COM4")  # Match the port used in main.py
+            self.laser_control = LaserControl(self.serial_comm)
+            
+        # Use provided autonomous manager or set to None
+        if autonomous_manager:
+            self.autonomous_manager = autonomous_manager
+        else:
+            self.autonomous_manager = None
+            
         self.selected_track_id = None
         self.last_joystick_button_state = False
         self.bind("<Button-1>", self.on_video_click)  # Mouse click event
@@ -61,16 +74,14 @@ class SunkarGUI(ctk.CTk):
         # Zoom butonları çerçevesi
         self.zoom_frame = ctk.CTkFrame(self.camera_frame, width=340, height=80, fg_color="#242E3A", corner_radius=12)
         self.zoom_frame.grid(row=1, column=1, padx=(10, 20), pady=(50, 30), sticky="nsew")
-
-        # Zoom butonlarını grid ile ortala
         self.zoom_frame.grid_columnconfigure((0, 1), weight=1)
         self.zoom_frame.grid_rowconfigure(0, weight=1)
-        
         self.zoom_in = ctk.CTkButton(self.zoom_frame, text="Yaklaştır", font=("Inter", 20), height=50)
         self.zoom_in.grid(row=0, column=0, padx=10, pady=15, sticky="ew")
-
         self.zoom_out = ctk.CTkButton(self.zoom_frame, text="Uzaklaştır", font=("Inter", 20), height=50)
         self.zoom_out.grid(row=0, column=1, padx=10, pady=15, sticky="ew")
+        
+
 
         # Sağ taraf: Kontrol paneli için Frame (1 sütun)
         self.panel = ctk.CTkFrame(self.main_container, width=320, height=540, fg_color="#131820", corner_radius=24)
@@ -83,45 +94,39 @@ class SunkarGUI(ctk.CTk):
         # Manuel / Auto switch ve label'ları
         self.manual_label = ctk.CTkLabel(self.panel, text="Manuel", font=("Inter", 28), text_color="#8892A6")
         self.manual_label.place(x=20, y=70)
-
         self.mode_switch = ctk.CTkSwitch(self.panel, text="", width=70)
         self.mode_switch.place(x=130, y=75)
-
         self.auto_label = ctk.CTkLabel(self.panel, text="Auto", font=("Inter", 28), text_color="#8892A6")
         self.auto_label.place(x=200, y=70)
 
-        # Başlat butonu
+        # Başlat butonu - Activates manual control mode
         self.start_button = ctk.CTkButton(self.panel, text="Başlat", width=140, height=45,
                                           fg_color="#242E3A", font=("Inter", 28), corner_radius=12, command=self.start_system)
         self.start_button.place(x=20, y=130)
-
-        # Başlangıç Konumuna Getir butonu (iki satır yazı, aynı genişlikte olacak)
         self.reset_button = ctk.CTkButton(self.panel, text="Başlangıç\nKonumuna Getir", width=140, height=45,
                                           fg_color="#242E3A", font=("Inter", 20), corner_radius=12, command=self.reset_position)
         self.reset_button.place(x=170, y=130)
-
-        # Ateş Et butonu
-        self.fire_button = ctk.CTkButton(self.panel, text="Ateş Et", width=290, height=50,
+        self.fire_button = ctk.CTkButton(self.panel, text="Ateş Et", width=140, height=50,
                                          fg_color="#EF4C4C", text_color="#FFFFFF",
-                                         font=("Inter", 28, "bold"), corner_radius=12, command=self.fire_action)
-        self.fire_button.place(x=20, y=200)
-
-        # Ayırıcı çizgi
+                                         font=("Inter", 28), corner_radius=12, command=self.fire_action)
+        self.fire_button.place(x=20, y=190)
+        
+        # Emergency Stop Button
+        self.emergency_button = ctk.CTkButton(self.panel, text="ACİL DURDUR", width=140, height=50,
+                                             fg_color="#FF0000", text_color="#FFFFFF",
+                                             font=("Inter", 20, "bold"), corner_radius=12, command=self.emergency_stop)
+        self.emergency_button.place(x=170, y=190)
         self.separator1 = ctk.CTkFrame(self.panel, height=3, width=290, fg_color="#1C222D")
         self.separator1.place(x=20, y=260)
-
-        # Yasak Alan Kontrolleri butonu
         self.restricted_button = ctk.CTkButton(self.panel, text="Yasak Alan Kontrolleri", width=290, height=45,
                                                fg_color="#242E3A", font=("Inter", 20), text_color="#FFFFFF",
                                                corner_radius=12,  command=self.restricted_area)
         self.restricted_button.place(x=20, y=280)
-
-        # Angajman Kabul Et butonu
         self.engage_button = ctk.CTkButton(self.panel, text="Angajman Kabul Et", width=290, height=50,
                                            fg_color="#EF4C4C", font=("Inter", 28), text_color="#FFFFFF",
                                            corner_radius=12, command=self.engage_action)
         self.engage_button.place(x=20, y=340)
-
+        
         self.protocol("WM_DELETE_WINDOW", self.on_close)
         self.start_camera()
 
@@ -129,12 +134,45 @@ class SunkarGUI(ctk.CTk):
         self.camera_manager.start()
         self.update_loop()
 
+    def start_system(self):
+        """Activate manual control mode and enable joystick controls."""
+        if self.start_button.cget("text") == "Aktif":
+            # Deactivate system
+            self.deactivate_system()
+        else:
+            # Activate system
+            print("[GUI] 🚀 Manual control system activated!")
+            self.status_box.configure(text="Manuel kontrol aktif - Joystick hazır")
+            
+            # Enable joystick controls
+            if self.joystick and self.joystick.joystick:
+                print("[GUI] ✅ Joystick controls enabled")
+                # Reset joystick state
+                self.joystick.position_hold_active = False
+                self.joystick.last_fire_button_state = False
+                self.joystick.fire_button_pressed = False
+            else:
+                print("[GUI] ⚠ Joystick not available")
+                self.status_box.configure(text="Joystick bulunamadı!")
+            
+            # Change button appearance to show it's active
+            self.start_button.configure(text="Aktif", fg_color="#4CAF50")
+
+    def deactivate_system(self):
+        """Deactivate manual control mode."""
+        print("[GUI] ⏹ Manual control system deactivated!")
+        self.status_box.configure(text="Manuel kontrol devre dışı")
+        
+        # Reset button appearance
+        self.start_button.configure(text="Başlat", fg_color="#242E3A")
+
     def update_loop(self):
         frame, tracks = self.camera_manager.get_frame()
         if frame is not None:
             auto_mode = self.mode_switch.get() == 1
             selected_bbox = None
-
+            status_message = ""
+            
             # --- Always draw bounding boxes for all detections ---
             for det in tracks:
                 x1, y1, x2, y2 = det['bbox']
@@ -147,104 +185,155 @@ class SunkarGUI(ctk.CTk):
                 cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
                 cv2.putText(frame, f"ID:{track_id} {det['label']}", (x1, max(0, y1 - 10)),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-
-            # --- Autonomous targeting logic with debug prints ---
-            if auto_mode:
-                red_balloons = [det for det in tracks if det['label'].lower() == "red"]
-                print(f"[AUTO] Detected red balloons: {[{'id': b['track_id'], 'bbox': b['bbox']} for b in red_balloons]}")
-                if red_balloons:
-                    candidates = [b for b in red_balloons if b['track_id'] not in self.auto_fired_ids]
-                    if candidates:
-                        target = min(candidates, key=lambda d: d['track_id'])
-                        self.selected_track_id = target['track_id']
-                        selected_bbox = target['bbox']
-                        print(f"[AUTO] Targeting balloon: track_id={target['track_id']}, bbox={target['bbox']}")
-                        # Fire laser only once per target
-                        if target['track_id'] not in self.auto_fired_ids:
-                            self.auto_fired_ids.add(target['track_id'])
-                            threading.Thread(target=self.auto_fire_laser, args=(0.5,), daemon=True).start()
-                            # Keep crosshair on this track_id
-                            self.crosshair_track_id = target['track_id']
-                        self.status_box.configure(text=f"Otonom: Hedeflenen balon ID {target['track_id']}")
-                    else:
-                        print("[AUTO] All red balloons have been targeted already.")
-                        self.status_box.configure(text="Otonom: Kırmızı balon kalmadı.")
-                        self.selected_track_id = None
-                else:
-                    print("[AUTO] No red balloons detected in this frame.")
-                    self.status_box.configure(text="Otonom: Kırmızı balon yok.")
-                    self.selected_track_id = None
+            
+            # --- Autonomous Mode Control ---
+            if auto_mode and self.autonomous_manager:
+                # Activate autonomous mode if not already active
+                if not self.auto_mode_active:
+                    try:
+                        self.autonomous_manager.activate()
+                        self.auto_mode_active = True
+                    except:
+                        pass
+                
+                # Process autonomous mode
+                try:
+                    target_bbox, target_id, status = self.autonomous_manager.process_frame(frame, tracks)
+                    status_message = status
+                    
+                    if target_bbox and target_id:
+                        self.selected_track_id = target_id
+                        selected_bbox = target_bbox
+                        
+                        # Draw target indicator
+                        center = ((target_bbox[0] + target_bbox[2]) // 2, (target_bbox[1] + target_bbox[3]) // 2)
+                        
+                        if "firing" in status.lower():
+                            # Draw red crosshair for firing
+                            self.draw_crosshair(frame, center, color=(0, 0, 255), size=15, thickness=3)
+                            cv2.putText(frame, "FIRING!", (center[0] - 30, center[1] - 20),
+                                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+                        elif "locking" in status.lower():
+                            # Draw yellow crosshair for locking
+                            self.draw_crosshair(frame, center, color=(0, 255, 255), size=12, thickness=2)
+                            cv2.putText(frame, "LOCKING", (center[0] - 30, center[1] - 20),
+                                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+                        else:
+                            # Draw blue crosshair for tracking
+                            self.draw_crosshair(frame, center, color=(255, 0, 0), size=10, thickness=2)
+                            cv2.putText(frame, "TRACKING", (center[0] - 30, center[1] - 20),
+                                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
+                    
+                    # Update status display
+                    self.status_box.configure(text=f"Otonom: {status_message}")
+                except:
+                    self.status_box.configure(text="Otonom mod hatası")
+            elif auto_mode:
+                self.status_box.configure(text="Otonom mod aktif - Sistem yok")
+                
             else:
+                # Manual mode - joystick control
                 # Joystick button for cycling selection
                 button_index = 2  # Example: X button index
                 button_pressed = self.joystick.get_button_pressed(button_index)
                 if button_pressed and not self.last_joystick_button_state:
                     self.cycle_selected_balloon(tracks)
                 self.last_joystick_button_state = button_pressed
-
-                # Check B button (index 1) for firing
-                b_button_index = 1
-                b_button_pressed = self.joystick.get_button_pressed(b_button_index)
-                if b_button_pressed and not getattr(self, 'last_b_button_state', False):
+                
+                # Check fire button (red button or fire button)
+                fire_button_pressed = self.joystick.get_fire_button_pressed()
+                if fire_button_pressed:
+                    print("[GUI] 🔥 Fire button pressed from joystick")
                     self.fire_action()
-                self.last_b_button_state = b_button_pressed
-
-            # --- Draw crosshair for selected target (auto or manual) ---
-            crosshair_drawn = False
-            if selected_bbox is not None:
+                    
+                # --- Joystick motor control ---
+                self.joystick.manual_mode_control()
+                
+                # --- Draw laser crosshair for manual mode ---
+                self.draw_laser_crosshair(frame)
+                
+                # Deactivate autonomous mode when switching to manual
+                if self.auto_mode_active:
+                    self.autonomous_manager.deactivate()
+                    self.auto_mode_active = False
+            
+            # --- Draw crosshair for selected target (manual mode) ---
+            if not auto_mode and selected_bbox is not None:
                 self.draw_crosshair(frame, ((selected_bbox[0] + selected_bbox[2]) // 2, (selected_bbox[1] + selected_bbox[3]) // 2))
-                crosshair_drawn = True
-            # In auto mode, keep crosshair on last targeted object as long as it is present
-            if auto_mode and not crosshair_drawn and self.crosshair_track_id is not None:
-                # Find the bbox for the last targeted track_id
-                for det in tracks:
-                    if det['track_id'] == self.crosshair_track_id:
-                        bbox = det['bbox']
-                        cx = (bbox[0] + bbox[2]) // 2
-                        cy = (bbox[1] + bbox[3]) // 2
-                        self.draw_crosshair(frame, (cx, cy))
-                        crosshair_drawn = True
-                        break
-                # If the object is no longer present, remove the crosshair
-                if not crosshair_drawn:
-                    self.crosshair_track_id = None
-
+            
+            # Convert and display frame
             img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             pil_image = Image.fromarray(img)
             imgtk = CTkImage(light_image=pil_image, size=(700, 400))
             self.video_label.configure(image=imgtk)
             self.video_label.imgtk = imgtk
+            
         self.after(30, self.update_loop)
 
+    def draw_laser_crosshair(self, frame):
+        """
+        Draw crosshair at the actual laser firing position with calibrated offsets.
+        """
+        height, width = frame.shape[:2]
+
+        # Get current camera position
+        camera_pos = self.camera_manager.get_camera_position()
+        servo_angle = camera_pos['servo_angle']
+        stepper_angle = camera_pos['stepper_angle']
+
+        # Calculate where the laser actually fires based on motor angles
+        # This is the actual firing point, not the camera center
+        
+        # Convert motor angles to pixel positions
+        # Servo controls vertical position (0-60 degrees maps to 0-height)
+        # Stepper controls horizontal position (0-300 degrees maps to 0-width)
+        
+        # Calculate laser firing position
+        laser_x = int((stepper_angle / 300.0) * width)  # Horizontal position
+        laser_y = int((servo_angle / 60.0) * height)    # Vertical position
+        
+        # Load calibrated offsets
+        offset_x = 0
+        offset_y = 0
+        try:
+            if os.path.exists('manual_crosshair_offset.json'):
+                with open('manual_crosshair_offset.json', 'r') as f:
+                    data = json.load(f)
+                    offset_x = data.get('offset_x', 0)
+                    offset_y = data.get('offset_y', 0)
+        except Exception as e:
+            print(f"Error loading crosshair calibration: {e}")
+        
+        # Apply calibrated offsets
+        laser_x += offset_x
+        laser_y += offset_y
+        
+        # Ensure position is within frame bounds
+        laser_x = max(0, min(width - 1, laser_x))
+        laser_y = max(0, min(height - 1, laser_y))
+
+        # Draw crosshair at actual laser firing position
+        cv2.line(frame, (laser_x - 15, laser_y), (laser_x + 15, laser_y), (0, 255, 0), 2)
+        cv2.line(frame, (laser_x, laser_y - 15), (laser_x, laser_y + 15), (0, 255, 0), 2)
+        cv2.circle(frame, (laser_x, laser_y), 3, (0, 255, 0), -1)
+
+        # Add label
+        cv2.putText(frame, "LASER", (laser_x - 25, laser_y - 20),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+
+        # Add status text in top-left corner
+        cv2.putText(frame, f"Manual Mode", (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+        cv2.putText(frame, f"Servo: {servo_angle}°", (10, height - 60),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        cv2.putText(frame, f"Stepper: {stepper_angle}°", (10, height - 40),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        cv2.putText(frame, f"Laser: ({laser_x}, {laser_y})", (10, height - 20),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+
     def auto_fire_laser(self, duration=0.5):
-        # Autonomous mode: do NOT check no-fire zone, always fire if logic allows
-        self.laser_control.turn_on()
-        time.sleep(duration)
-        self.laser_control.turn_off()
-
-    def start_joystick_loop(self):
-        def joystick_loop():
-            while self.manual_control.is_manual_mode:
-                self.manual_control.joystick_input()
-                time.sleep(0.1)  # 10 Hz joystick polling rate
-        threading.Thread(target=joystick_loop, daemon=True).start()
-
-    def start_system(self):
-        mode = self.mode_switch.get()
-        if mode == 0:
-            self.status_box.configure(text="Manuel Mod Başlatıldı.")
-            print("Manuel mod başlatılıyor...")
-            self.auto_fired_ids.clear()
-            self.auto_mode_active = False
-            # ManualModeControl başlat
-            self.manual_control = ManualModeControl(self.camera_manager, self.laser_control, self.joystick)
-            self.manual_control.switch_to_manual()
-            self.start_joystick_loop()
-        else:
-            self.status_box.configure(text="Otonom Mod Başlatıldı.")
-            print("Otonom mod başlatılıyor...")
-            self.auto_fired_ids.clear()
-            self.auto_mode_active = True
+        """Fire laser in auto mode."""
+        self.laser_control.fire_laser(duration)
 
     def reset_position(self):
         self.camera_manager.reset_position()
@@ -261,13 +350,10 @@ class SunkarGUI(ctk.CTk):
         frame, tracks = self.camera_manager.get_frame()
         if frame is None:
             return
-
         display_w, display_h = self.video_label.winfo_width(), self.video_label.winfo_height()
         frame_h, frame_w = frame.shape[:2]
-
         x_img = int(event.x * frame_w / display_w)
         y_img = int(event.y * frame_h / display_h)
-
         for det in tracks:
             x1, y1, x2, y2 = det['bbox']
             if x1 <= x_img <= x2 and y1 <= y_img <= y2:
@@ -286,33 +372,44 @@ class SunkarGUI(ctk.CTk):
             self.selected_track_id = track_ids[(idx + 1) % len(track_ids)]
 
     def fire_action(self):
-        frame, tracks = self.camera_manager.get_frame()
-        selected_bbox = None
-        for det in tracks:
-            if det['track_id'] == self.selected_track_id:
-                selected_bbox = det['bbox']
-                break
-        # Get current stepper angle from manual_control
-        h_angle, _ = self.manual_control.get_last_angles() if hasattr(self.manual_control, 'get_last_angles') else (0, 0)
-        # Get no-fire zone angles
-        start_angle_str = self.fire_start_entry.get()
-        end_angle_str = self.fire_end_entry.get()
-        try:
-            start_angle = float(start_angle_str)
-            end_angle = float(end_angle_str)
-            angles_valid = True
-        except Exception:
-            angles_valid = False
-        # Only restrict if both angles are valid and not empty
-        if angles_valid and start_angle_str.strip() != '' and end_angle_str.strip() != '':
-            if self.is_angle_in_sector(h_angle, start_angle, end_angle):
-                self.status_box.configure(text="Restricted Area")
-                return
-        if selected_bbox and self.manual_control.is_balloon_centered(selected_bbox, frame.shape):
-            self.manual_control.fire_laser()
-            self.status_box.configure(text="ATEŞ EDİLDİ!")
-        else:
-            self.status_box.configure(text="Ateş edilemez, hedef ortalanmadı.")
+        """Fire the laser - called from GUI Fire button or joystick fire button."""
+        if self.mode_switch.get():  # Auto mode
+            # In auto mode, fire at the lowest ID balloon
+            frame, tracks = self.camera_manager.get_frame()
+            if tracks:
+                # Find balloon with lowest ID
+                lowest_id_track = min(tracks, key=lambda x: x['track_id'])
+                print(f"[GUI] 🔥 Auto mode firing at balloon ID: {lowest_id_track['track_id']}")
+                self.laser_control.fire_laser()
+                self.status_box.configure(text=f"Auto Ateş: ID {lowest_id_track['track_id']}")
+            else:
+                self.status_box.configure(text="Hedef bulunamadı")
+        else:  # Manual mode
+            # In manual mode, fire directly
+            print("[GUI] 🔥 Manual mode firing")
+            self.laser_control.fire_laser()
+            self.status_box.configure(text="Manuel Ateş Edildi!")
+            
+    def emergency_stop(self):
+        """Emergency stop - immediately stop all operations."""
+        print("[GUI] 🚨 EMERGENCY STOP ACTIVATED!")
+        self.status_box.configure(text="ACİL DURDUR AKTİF!")
+        
+        # Stop autonomous mode
+        if hasattr(self, 'autonomous_manager'):
+            self.autonomous_manager.emergency_stop()
+            
+        # Stop laser
+        if self.laser_control:
+            self.laser_control.emergency_stop()
+            
+        # Switch to manual mode
+        self.mode_switch.select(0)  # Manual mode
+        
+        # Deactivate system
+        self.deactivate_system()
+        
+        print("[GUI] ✅ All systems stopped safely")
 
     def is_angle_in_sector(self, angle, start, end):
         # Normalize angles to [0, 360)
@@ -439,6 +536,8 @@ class SunkarGUI(ctk.CTk):
         self.status_box.configure(text="Angajman kabul edildi.")
         print("Angajman Kabul Et butonu çalıştı.")
 
+
+        
     def on_close(self):
         self.camera_manager.stop()
-        self.destroy() 
+        self.destroy()

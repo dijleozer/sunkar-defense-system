@@ -1,3 +1,4 @@
+#include <Arduino.h>
 #include <Servo.h>
 
 // Pin assignments
@@ -155,5 +156,5 @@ void sendStatus() {
   Serial.print("YAW:"); Serial.print(currentYaw);
   Serial.print(";PITCH:"); Serial.print(currentPitch);
   Serial.print(";FIRE:"); Serial.print(firing ? 1 : 0);
-  Serial.print(";ESTOP:"); Serial.println(estop ? 1 : 0);
+  Serial.print(";ESTOP:"); Serial.println(estop ? 1 : 0);
 }
