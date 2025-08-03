@@ -1,183 +1,264 @@
-# MG995 Servo Motor Wiring Diagram
+# MG995 Servo Wiring Diagram
 
-## Power Supply Requirements
+## Overview
 
-### **6V Power Supply Setup**
+This document provides detailed wiring diagrams and connection information for integrating the MG995 servo motor into the Sunkar Defense System.
+
+## MG995 Pin Configuration
+
+### Servo Connector
 ```
-6V Power Supply (2A recommended)
-├── Arduino 5V (via voltage regulator)
-├── MG995 Servo (6V direct)
-└── Stepper Motor (if 6V compatible)
-```
-
-## Detailed Wiring Diagram
-
-### **1. Power Distribution**
-
-```
-6V Power Supply
-│
-├── [Voltage Regulator] → Arduino 5V
-│   (LM7805 or similar)
-│
-├── [1000µF Capacitor] → MG995 Power
-│   (for current spikes)
-│
-└── [1000µF Capacitor] → Stepper Power
-    (if needed)
+┌─────────┐
+│ 1  2  3 │
+│ ─  ─  ─ │
+└─────────┘
 ```
 
-### **2. MG995 Servo Connections**
+### Pin Functions
+- **Pin 1**: Signal (PWM) - Yellow/White wire
+- **Pin 2**: Power (VCC) - Red wire  
+- **Pin 3**: Ground (GND) - Brown/Black wire
 
-```
-MG995 Servo Motor
-├── Red Wire   → 6V Power Supply (+)
-├── Brown Wire → Common Ground (-)
-└── Orange Wire → Arduino Pin 9 (Signal)
-```
+## Arduino Connection
 
-### **3. Voltage Monitoring Circuit**
-
+### Basic Connection
 ```
-Voltage Divider (for 6V monitoring)
-6V → [10kΩ Resistor] → [10kΩ Resistor] → GND
-                        ↓
-                     Arduino A0
+Arduino Uno    MG995 Servo
+───────────    ───────────
+Pin 9 ──────── Signal (Pin 1)
+5V ─────────── Power (Pin 2)
+GND ────────── Ground (Pin 3)
 ```
 
-**Calculation:**
-- Input: 6V
-- Output: 3V (safe for Arduino 5V input)
-- Ratio: 2:1 (voltageDividerRatio = 2.0)
-
-### **4. Complete Wiring Layout**
-
+### Detailed Wiring
 ```
-┌─────────────────────────────────────────┐
-│              6V Power Supply            │
-│              (2A, 6V)                   │
-└─────────────────┬───────────────────────┘
-                  │
-                  ├── [LM7805] ──→ Arduino 5V
-                  │
-                  ├── [1000µF] ──→ MG995 Red
-                  │
-                  ├── [10kΩ] ────→ [10kΩ] ──→ GND
-                  │               ↓
-                  │            Arduino A0
-                  │
-                  └── Common Ground ──→ All GND
+Arduino Uno R3
+┌─────────────────┐
+│                 │
+│  ┌─────────────┐│
+│  │   Digital   ││
+│  │   Pin 9     ││ ──── Signal (Yellow)
+│  └─────────────┘│
+│                 │
+│  ┌─────────────┐│
+│  │     5V      ││ ──── Power (Red)
+│  └─────────────┘│
+│                 │
+│  ┌─────────────┐│
+│  │    GND      ││ ──── Ground (Brown)
+│  └─────────────┘│
+│                 │
+└─────────────────┘
 ```
 
-## Component List
+## Power Supply Connection
 
-### **Required Components:**
-1. **6V Power Supply** (2A minimum, 3A recommended)
-2. **LM7805 Voltage Regulator** (for Arduino 5V)
-3. **1000µF Electrolytic Capacitors** (2x for power filtering)
-4. **10kΩ Resistors** (2x for voltage divider)
-5. **Breadboard/PCB** for connections
-6. **Heat Sink** for LM7805 (if needed)
+### External Power Supply
+```
+Power Supply     MG995 Servo
+─────────────    ───────────
++5V ──────────── Power (Pin 2)
+GND ──────────── Ground (Pin 3)
+```
 
-### **Optional Components:**
-1. **ACS712 Current Sensor** (for current monitoring)
-2. **Thermal Sensor** (for temperature monitoring)
-3. **Position Potentiometer** (for feedback)
+### Shared Ground Configuration
+```
+Arduino Uno    Power Supply    MG995 Servo
+───────────    ────────────    ───────────
+Pin 9 ──────── ──────────── ── Signal (Pin 1)
+GND ────────── GND ─────────── Ground (Pin 3)
+5V ─────────── +5V ─────────── Power (Pin 2)
+```
+
+## Multiple Servo Configuration
+
+### Two Servo Setup
+```
+Arduino Uno    MG995 Servo 1    MG995 Servo 2
+───────────    ─────────────    ─────────────
+Pin 9 ──────── Signal (Pin 1)   ────────────
+Pin 10 ─────── ─────────────    Signal (Pin 1)
+5V ─────────── Power (Pin 2)    Power (Pin 2)
+GND ────────── Ground (Pin 3)   Ground (Pin 3)
+```
+
+### Power Distribution
+```
+Power Supply    ┌─ MG995 Servo 1
++5V ───────────┤
+                └─ MG995 Servo 2
+GND ────────────┬─ Arduino GND
+                ├─ Servo 1 GND
+                └─ Servo 2 GND
+```
+
+## Sunkar System Integration
+
+### Complete System Wiring
+```
+Arduino Uno    Power Supply    MG995 Servo    Stepper Motor
+───────────    ────────────    ───────────    ─────────────
+Pin 9 ──────── ──────────── ── Signal ─────── ────────────
+Pin 8 ──────── ──────────── ── ───────────── ── Step
+Pin 7 ──────── ──────────── ── ───────────── ── Dir
+5V ─────────── +5V ─────────── Power ─────── ── ────────────
+GND ────────── GND ─────────── Ground ─────── ── GND
+```
+
+### Power Requirements
+- **MG995 Servo**: 5V, 500mA-1.5A
+- **Stepper Motor**: 12V, 1A-2A
+- **Arduino**: 5V, 200mA
+- **Total System**: 12V, 3A-4A
 
 ## Safety Considerations
 
-### **1. Power Isolation**
-- **Separate power rails** for servo and logic
-- **Common ground** connection required
-- **Voltage monitoring** to prevent damage
-
-### **2. Current Protection**
-- **Fuse protection** (1A fast-blow recommended)
-- **Current monitoring** (optional but recommended)
-- **Overcurrent shutdown** in software
-
-### **3. Thermal Protection**
-- **Servo cooling** periods (implemented in code)
-- **Heat sink** for voltage regulator
-- **Ventilation** for MG995
-
-## Testing Procedure
-
-### **1. Power Supply Test**
-```bash
-# Measure voltages at test points:
-1. Power Supply Output: 6.0V ±0.2V
-2. Arduino 5V: 5.0V ±0.1V
-3. MG995 Power: 6.0V ±0.2V
-4. Voltage Divider Output: 3.0V ±0.1V
+### Fuse Protection
+```
+Power Supply    Fuse (2A)    MG995 Servo
++5V ──────────── ● ─────────── Power
 ```
 
-### **2. Servo Movement Test**
-```arduino
-// Test servo movement through full range
-movePitch(0);   // Should move to 0°
-delay(1000);
-movePitch(30);  // Should move to 30°
-delay(1000);
-movePitch(60);  // Should move to 60°
-delay(1000);
-movePitch(0);   // Return to start
+### Diode Protection
+```
+Arduino Pin 9    Diode (1N4007)    MG995 Signal
+───────────── ──── ● ───────────── ────────────
 ```
 
-### **3. Voltage Monitoring Test**
-```arduino
-// Check voltage readings
-Serial.print("Voltage: ");
-Serial.println(getVoltage()); // Should read ~6.0V
+### Capacitor Filtering
+```
+Power Supply    Capacitor (100μF)    MG995 Servo
++5V ──────────── || ───────────────── Power
+GND ──────────── || ───────────────── Ground
 ```
 
-## Troubleshooting Guide
+## Cable Management
 
-### **Common Issues:**
+### Cable Routing
+```
+┌─────────────────────────────────────┐
+│ Arduino Mounting Plate              │
+│ ┌─────────┐    ┌─────────┐        │
+│ │Arduino  │    │MG995    │        │
+│ │Uno      │    │Servo    │        │
+│ └─────────┘    └─────────┘        │
+│     │              │              │
+│     └──────────────┘              │
+│         Cable Bundle               │
+└─────────────────────────────────────┘
+```
 
-#### **1. Servo Not Moving**
-- **Check power supply** (should be 6V)
-- **Verify signal wire** (Pin 9)
-- **Check ground connection** (common ground required)
+### Cable Specifications
+- **Signal Wire**: 22 AWG, shielded
+- **Power Wire**: 18 AWG, stranded
+- **Ground Wire**: 18 AWG, stranded
+- **Cable Length**: 30cm maximum
 
-#### **2. Jerky Movement**
-- **Add capacitors** for power filtering
-- **Check voltage stability** during movement
-- **Verify pulse width** settings (500-2500µs)
+## Testing Connections
 
-#### **3. Low Voltage Warning**
-- **Check power supply** capacity
-- **Verify voltage divider** resistors
-- **Test voltage at servo** terminals
+### Continuity Test
+```python
+def test_connections():
+    """Test servo connections"""
+    # Test signal connection
+    signal_ok = test_signal_connection()
+    print(f"Signal connection: {'OK' if signal_ok else 'FAIL'}")
+    
+    # Test power connection
+    power_ok = test_power_connection()
+    print(f"Power connection: {'OK' if power_ok else 'FAIL'}")
+    
+    # Test ground connection
+    ground_ok = test_ground_connection()
+    print(f"Ground connection: {'OK' if ground_ok else 'FAIL'}")
+```
 
-#### **4. Overheating**
-- **Reduce continuous operation** time
-- **Add cooling periods** (implemented in code)
-- **Check load** on servo
+### Voltage Test
+```python
+def test_voltages():
+    """Test voltage levels"""
+    # Test power supply voltage
+    vcc = measure_voltage('VCC')
+    print(f"VCC voltage: {vcc}V")
+    
+    # Test signal voltage
+    signal = measure_voltage('SIGNAL')
+    print(f"Signal voltage: {signal}V")
+    
+    # Test ground voltage
+    gnd = measure_voltage('GND')
+    print(f"Ground voltage: {gnd}V")
+```
 
-## Performance Specifications
+## Troubleshooting
 
-### **MG995 Expected Performance:**
-- **Speed**: 0.17sec/60° at 6V
-- **Torque**: 10kg-cm at 6V
-- **Current**: 500-900mA under load
-- **Temperature**: Monitor for overheating
+### Common Wiring Issues
 
-### **System Performance:**
-- **Response Time**: <100ms for position changes
-- **Accuracy**: ±1° positioning
-- **Reliability**: Continuous operation with thermal protection
+#### No Movement
+- **Check Power**: Verify 5V power connection
+- **Check Ground**: Verify ground connection
+- **Check Signal**: Verify PWM signal connection
+- **Check Polarity**: Verify wire polarity
+
+#### Erratic Movement
+- **Loose Connections**: Check for loose wires
+- **Power Supply**: Check power supply stability
+- **Signal Noise**: Shield signal wires
+- **Ground Loop**: Check for ground loops
+
+#### Overheating
+- **Overload**: Check for mechanical overload
+- **Power Supply**: Check power supply capacity
+- **Duty Cycle**: Reduce continuous operation
+- **Cooling**: Improve ventilation
+
+### Diagnostic Commands
+```python
+def diagnose_wiring():
+    """Diagnose wiring issues"""
+    # Test continuity
+    continuity = test_continuity()
+    print(f"Continuity: {continuity}")
+    
+    # Test resistance
+    resistance = test_resistance()
+    print(f"Resistance: {resistance}Ω")
+    
+    # Test insulation
+    insulation = test_insulation()
+    print(f"Insulation: {insulation}")
+```
 
 ## Maintenance
 
-### **Regular Checks:**
-1. **Voltage monitoring** (daily)
-2. **Servo temperature** (during operation)
-3. **Connections** (weekly)
-4. **Power supply** stability (monthly)
+### Regular Checks
+1. **Visual Inspection**: Check for loose connections
+2. **Continuity Test**: Test wire continuity
+3. **Voltage Test**: Test voltage levels
+4. **Performance Test**: Test servo performance
 
-### **Preventive Maintenance:**
-1. **Clean connections** regularly
-2. **Check for loose wires**
-3. **Monitor servo wear**
-4. **Update firmware** as needed 
+### Preventive Maintenance
+1. **Cable Inspection**: Check for cable wear
+2. **Connection Cleaning**: Clean connections
+3. **Tightening**: Tighten loose connections
+4. **Replacement**: Replace damaged cables
+
+## Documentation
+
+### Wiring Diagram Legend
+- **Solid Line**: Power connection
+- **Dashed Line**: Signal connection
+- **Dotted Line**: Ground connection
+- **Arrow**: Direction of current flow
+
+### Color Coding
+- **Red**: Power (VCC)
+- **Black/Brown**: Ground (GND)
+- **Yellow/White**: Signal (PWM)
+- **Blue**: Optional control signals
+
+### Labeling
+- **Arduino Pins**: Label with pin numbers
+- **Servo Pins**: Label with pin functions
+- **Power Supply**: Label with voltage/current
+- **Cable Ends**: Label with connection points 

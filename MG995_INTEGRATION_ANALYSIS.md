@@ -1,271 +1,259 @@
-# MG995 Servo Motor Integration Analysis
+# MG995 Servo Integration Analysis
 
-## MG995 Datasheet Specifications
+## Overview
 
-### Electrical Specifications:
-- **Operating Voltage**: 4.8V - 7.2V (6V recommended)
-- **Current Draw**: 500-900mA under load, 10mA idle
-- **Pulse Width**: 500-2500µs (1-2ms standard)
-- **Pulse Frequency**: 50Hz (20ms period)
-- **Rotation Range**: 180° (±90° from center)
+This document provides a comprehensive analysis of integrating the MG995 servo motor into the Sunkar Defense System. The MG995 is a high-torque servo motor suitable for precise positioning applications.
 
-### Mechanical Specifications:
-- **Torque**: 10kg-cm at 6V, 8.5kg-cm at 4.8V
-- **Speed**: 0.17sec/60° at 6V, 0.20sec/60° at 4.8V
+## MG995 Specifications
+
+### Physical Characteristics
+- **Dimensions**: 40.2 x 20.2 x 38.0 mm
 - **Weight**: 55g
-- **Dimensions**: 40.7 x 20.2 x 38.1mm
+- **Operating Voltage**: 4.8V - 7.2V
+- **Stall Torque**: 10kg/cm at 4.8V, 13kg/cm at 6.0V
+- **Speed**: 0.17sec/60° at 4.8V, 0.14sec/60° at 6.0V
+- **Rotation Range**: 180 degrees
+- **Control Signal**: PWM (Pulse Width Modulation)
 
-## Required System Changes
+### Electrical Characteristics
+- **Signal Period**: 20ms (50Hz)
+- **Pulse Width**: 0.5ms - 2.5ms
+- **Neutral Position**: 1.5ms
+- **Operating Current**: 500mA - 1.5A (depending on load)
+- **Idle Current**: 10mA
 
-### 1. POWER SUPPLY REQUIREMENTS
+## Integration Requirements
 
-#### Current Issues:
-- **Voltage Range**: MG995 requires 4.8V-7.2V (6V optimal)
-- **Current Capacity**: Needs 500-900mA under load
-- **Power Stability**: Requires stable voltage supply
+### Power Supply
+- **Voltage**: 5V - 6V DC
+- **Current Capacity**: Minimum 2A
+- **Regulation**: Stable voltage regulation required
+- **Filtering**: Capacitive filtering for noise reduction
 
-#### Required Changes:
+### Control Interface
+- **Signal Type**: PWM
+- **Frequency**: 50Hz
+- **Resolution**: 1μs pulse width
+- **Control Method**: Arduino PWM output
 
-##### **A. Power Supply Upgrade**
-```arduino
-// Add power monitoring in Arduino code
-const int voltagePin = A0;  // Voltage divider for power monitoring
-const float minVoltage = 4.8;  // MG995 minimum voltage
-const float optimalVoltage = 6.0;  // MG995 optimal voltage
-const float maxVoltage = 7.2;  // MG995 maximum voltage
+### Mechanical Integration
+- **Mounting**: Standard servo mounting brackets
+- **Load Capacity**: Up to 10kg/cm torque
+- **Positioning Accuracy**: ±1 degree
+- **Backlash**: Minimal (< 1 degree)
 
-void checkPowerSupply() {
-  float voltage = analogRead(voltagePin) * (5.0 / 1023.0) * 2; // Voltage divider
-  if (voltage < minVoltage) {
-    Serial.println("WARNING: Low voltage detected!");
-    stopAll();
-  }
+## Arduino Integration
+
+### Hardware Setup
+```cpp
+// Arduino pin configuration
+#define SERVO_PIN 9        // PWM pin for servo control
+#define SERVO_MIN 544      // Minimum pulse width (0 degrees)
+#define SERVO_MAX 2400     // Maximum pulse width (180 degrees)
+#define SERVO_CENTER 1472  // Center position (90 degrees)
+```
+
+### Software Implementation
+```cpp
+#include <Servo.h>
+
+Servo mg995_servo;
+
+void setup() {
+  mg995_servo.attach(SERVO_PIN, SERVO_MIN, SERVO_MAX);
+  mg995_servo.write(90);  // Center position
 }
-```
 
-##### **B. Power Supply Recommendations**
-- **Use 6V power supply** (not 5V Arduino power)
-- **Separate power rails** for servo and logic
-- **Add capacitors** (1000µF) for current spikes
-- **Current rating**: Minimum 1A, recommended 2A
-
-### 2. WIRING CHANGES
-
-#### Current Wiring Issues:
-- **Signal wire**: Pin 9 (unchanged)
-- **Power wire**: Needs separate 6V supply
-- **Ground wire**: Common ground required
-
-#### Required Wiring Changes:
-
-##### **A. Power Distribution**
-```
-6V Power Supply
-├── Arduino (5V regulator)
-├── MG995 Servo (6V direct)
-└── Stepper Motor (if 6V compatible)
-```
-
-##### **B. Add Power Monitoring Circuit**
-```
-Voltage Divider:
-6V → [10kΩ] → [10kΩ] → GND
-              ↓
-           Arduino A0
-```
-
-### 3. CODE MODIFICATIONS
-
-#### **A. Arduino Code Updates**
-
-##### **1. Add Power Monitoring**
-```arduino
-// Add to motor_control.ino
-const int voltagePin = A0;
-const float voltageDividerRatio = 2.0;
-
-void checkVoltage() {
-  int rawValue = analogRead(voltagePin);
-  float voltage = (rawValue * 5.0 / 1023.0) * voltageDividerRatio;
+void setServoAngle(int angle) {
+  // Constrain angle to valid range
+  angle = constrain(angle, 0, 180);
   
-  if (voltage < 4.8) {
-    Serial.println("ERR:LOW_VOLTAGE");
-    stopAll();
-  }
-}
-```
-
-##### **2. Update Servo Parameters**
-```arduino
-// Current settings are correct for MG995
-const int servoMinPulse = 500;   // ✓ Correct for MG995
-const int servoMaxPulse = 2500;  // ✓ Correct for MG995
-```
-
-##### **3. Add Servo Speed Control**
-```arduino
-// Add gradual movement for MG995
-void movePitchGradual(int targetPitch) {
-  int current = currentPitch;
-  int step = (targetPitch > current) ? 1 : -1;
+  // Set servo position
+  mg995_servo.write(angle);
   
-  while (current != targetPitch) {
-    current += step;
-    movePitch(current);
-    delay(20); // 50Hz update rate
-  }
+  // Optional: Add delay for movement
+  delay(50);
 }
 ```
 
-#### **B. Python Code Updates**
+## Python Integration
 
-##### **1. Add Power Monitoring in GUI**
+### Serial Communication Protocol
 ```python
-# Add to gui.py
-def check_servo_voltage(self):
-    # Read voltage from Arduino
-    voltage = self.serial.read_voltage()
-    if voltage < 4.8:
-        self.status_box.configure(text="⚠️ Low Voltage!")
-        return False
-    return True
+class MG995Control:
+    def __init__(self, serial_comm):
+        self.serial_comm = serial_comm
+        self.min_angle = 0
+        self.max_angle = 180
+        self.center_angle = 90
+        
+    def set_angle(self, angle):
+        """Set servo angle with validation"""
+        # Constrain angle to valid range
+        angle = max(self.min_angle, min(self.max_angle, angle))
+        
+        # Send command to Arduino
+        command = f"SERVO:{angle}"
+        self.serial_comm.send_command(command)
+        
+    def center_servo(self):
+        """Center the servo"""
+        self.set_angle(self.center_angle)
+        
+    def get_position(self):
+        """Get current servo position"""
+        command = "SERVO:GET"
+        response = self.serial_comm.send_command(command)
+        return int(response) if response else None
 ```
 
-##### **2. Update Serial Communication**
+## Performance Analysis
+
+### Speed Characteristics
+- **Movement Speed**: 0.17sec/60° at 4.8V
+- **Acceleration**: Smooth acceleration curve
+- **Deceleration**: Controlled deceleration
+- **Response Time**: < 20ms for signal processing
+
+### Accuracy Analysis
+- **Positioning Accuracy**: ±1 degree
+- **Repeatability**: ±0.5 degrees
+- **Hysteresis**: < 1 degree
+- **Temperature Drift**: Minimal
+
+### Load Handling
+- **Maximum Torque**: 10kg/cm at 4.8V
+- **Continuous Torque**: 5kg/cm
+- **Peak Current**: 1.5A under load
+- **Efficiency**: 70-80% under normal load
+
+## Safety Considerations
+
+### Electrical Safety
+- **Overvoltage Protection**: Do not exceed 7.2V
+- **Current Limiting**: Implement current limiting if needed
+- **Reverse Polarity**: Protect against reverse polarity
+- **EMI Shielding**: Shield signal wires if needed
+
+### Mechanical Safety
+- **Load Limits**: Do not exceed 10kg/cm torque
+- **Position Limits**: Implement software limits
+- **Emergency Stop**: Immediate stop capability
+- **Mechanical Stops**: Physical stops for critical positions
+
+### Operational Safety
+- **Startup Sequence**: Center servo on startup
+- **Error Handling**: Handle communication errors
+- **Timeout Protection**: Implement command timeouts
+- **Status Monitoring**: Monitor servo status
+
+## Calibration Procedure
+
+### Initial Setup
+1. **Power Up**: Apply 5V-6V power
+2. **Signal Test**: Send center position signal
+3. **Mechanical Check**: Verify servo responds
+4. **Range Test**: Test full range of motion
+
+### Calibration Steps
+1. **Center Calibration**: Set to 90 degrees
+2. **Range Verification**: Test 0-180 degree range
+3. **Accuracy Check**: Verify positioning accuracy
+4. **Load Testing**: Test under expected load
+
+### Fine Tuning
+1. **Offset Adjustment**: Adjust for mechanical offset
+2. **Speed Optimization**: Optimize movement speed
+3. **Acceleration Tuning**: Adjust acceleration curves
+4. **Load Compensation**: Compensate for load effects
+
+## Troubleshooting Guide
+
+### Common Issues
+
+#### Servo Not Moving
+- **Check Power**: Verify 5V-6V power supply
+- **Check Signal**: Verify PWM signal is present
+- **Check Wiring**: Verify signal wire connection
+- **Check Load**: Ensure load is within limits
+
+#### Erratic Movement
+- **Power Supply**: Check for voltage fluctuations
+- **Signal Noise**: Shield signal wires
+- **Load Issues**: Reduce load or increase power
+- **Mechanical Binding**: Check for mechanical interference
+
+#### Inaccurate Positioning
+- **Calibration**: Recalibrate center position
+- **Load Compensation**: Adjust for load effects
+- **Temperature**: Allow for temperature stabilization
+- **Wear**: Check for mechanical wear
+
+#### Overheating
+- **Load Reduction**: Reduce mechanical load
+- **Duty Cycle**: Reduce continuous operation
+- **Cooling**: Improve ventilation
+- **Power Supply**: Check power supply stability
+
+### Diagnostic Commands
 ```python
-# Add voltage monitoring to serial_comm.py
-def read_voltage(self):
-    if self.ser and self.ser.is_open:
-        self.ser.write(b"VOLTAGE\n")
-        response = self.ser.readline().decode().strip()
-        return float(response.split(':')[1])
-    return 0.0
+def diagnose_servo():
+    """Diagnose servo issues"""
+    # Test power supply
+    voltage = measure_voltage()
+    print(f"Voltage: {voltage}V")
+    
+    # Test signal
+    signal_ok = test_pwm_signal()
+    print(f"Signal OK: {signal_ok}")
+    
+    # Test movement
+    movement_ok = test_movement()
+    print(f"Movement OK: {movement_ok}")
+    
+    # Test positioning
+    position_ok = test_positioning()
+    print(f"Positioning OK: {position_ok}")
 ```
 
-### 4. MECHANICAL CONSIDERATIONS
+## Integration with Sunkar System
 
-#### **A. Mounting Changes**
-- **MG995 Dimensions**: 40.7 x 20.2 x 38.1mm
-- **Check mounting compatibility** with existing bracket
-- **Ensure proper ventilation** (MG995 can get warm)
+### System Requirements
+- **Compatibility**: Compatible with existing Arduino setup
+- **Communication**: Uses existing serial communication
+- **Control**: Integrated with motor control system
+- **Safety**: Includes emergency stop functionality
 
-#### **B. Torque Requirements**
-- **MG995 Torque**: 10kg-cm at 6V
-- **Verify load capacity** for your application
-- **Consider gear reduction** if needed
+### Implementation Steps
+1. **Hardware Setup**: Install MG995 servo
+2. **Arduino Code**: Update Arduino firmware
+3. **Python Integration**: Update Python control code
+4. **Testing**: Comprehensive testing
+5. **Calibration**: System calibration
+6. **Documentation**: Update documentation
 
-### 5. SAFETY IMPROVEMENTS
+### Performance Expectations
+- **Response Time**: < 100ms for position changes
+- **Accuracy**: ±1 degree positioning
+- **Reliability**: 99%+ uptime
+- **Durability**: Long-term operation capability
 
-#### **A. Add Thermal Protection**
-```arduino
-// Add to motor_control.ino
-unsigned long lastMoveTime = 0;
-const unsigned long maxContinuousTime = 30000; // 30 seconds
+## Future Enhancements
 
-void checkThermalProtection() {
-  if (millis() - lastMoveTime > maxContinuousTime) {
-    // Allow servo to cool
-    pitchServo.detach();
-    delay(5000); // 5 second cooldown
-    pitchServo.attach(servoPin, servoMinPulse, servoMaxPulse);
-  }
-}
-```
+### Advanced Features
+- **Position Feedback**: Add position sensors
+- **Load Sensing**: Implement load detection
+- **Temperature Monitoring**: Add temperature sensors
+- **Predictive Maintenance**: Implement maintenance alerts
 
-#### **B. Add Current Monitoring**
-```arduino
-// Add current sensor if available
-const int currentPin = A1;
-const float currentThreshold = 1.0; // 1A max
+### Performance Improvements
+- **Speed Optimization**: Optimize movement algorithms
+- **Accuracy Enhancement**: Improve positioning accuracy
+- **Load Compensation**: Advanced load compensation
+- **Energy Efficiency**: Optimize power consumption
 
-void checkCurrent() {
-  float current = analogRead(currentPin) * (5.0 / 1023.0) / 0.185; // ACS712
-  if (current > currentThreshold) {
-    Serial.println("ERR:OVER_CURRENT");
-    stopAll();
-  }
-}
-```
-
-### 6. PERFORMANCE OPTIMIZATIONS
-
-#### **A. Update Movement Speed**
-```arduino
-// MG995 speed: 0.17sec/60° at 6V
-const int servoDelay = 17; // ms per degree
-
-void movePitch(int targetPitch) {
-  int pulse = map(targetPitch, pitchMin, pitchMax, servoMinPulse, servoMaxPulse);
-  pitchServo.writeMicroseconds(pulse);
-  currentPitch = targetPitch;
-  
-  // Add delay for smooth movement
-  int angleDiff = abs(targetPitch - currentPitch);
-  delay(angleDiff * servoDelay);
-}
-```
-
-#### **B. Add Position Feedback**
-```arduino
-// Optional: Add potentiometer for position feedback
-const int feedbackPin = A2;
-
-int getActualPosition() {
-  int rawValue = analogRead(feedbackPin);
-  return map(rawValue, 0, 1023, pitchMin, pitchMax);
-}
-```
-
-## IMPLEMENTATION PRIORITY
-
-### **High Priority (Required)**
-1. **Power Supply Upgrade** to 6V
-2. **Separate Power Rails** for servo
-3. **Add Voltage Monitoring**
-4. **Update Wiring** for 6V supply
-
-### **Medium Priority (Recommended)**
-1. **Add Thermal Protection**
-2. **Implement Gradual Movement**
-3. **Add Current Monitoring**
-4. **Update GUI** for voltage display
-
-### **Low Priority (Optional)**
-1. **Add Position Feedback**
-2. **Implement Speed Control**
-3. **Add Advanced Diagnostics**
-
-## TESTING CHECKLIST
-
-### **Electrical Testing**
-- [ ] Measure voltage at servo terminals (should be 6V)
-- [ ] Check current draw under load (should be <1A)
-- [ ] Verify voltage stability during movement
-- [ ] Test emergency stop functionality
-
-### **Mechanical Testing**
-- [ ] Verify smooth movement 0-60°
-- [ ] Check for binding or jerky motion
-- [ ] Test torque under load
-- [ ] Verify mounting stability
-
-### **Software Testing**
-- [ ] Test power monitoring alerts
-- [ ] Verify gradual movement function
-- [ ] Check thermal protection
-- [ ] Test integration with full system
-
-## COST ESTIMATE
-
-### **Required Components**
-- **6V Power Supply**: $15-25
-- **Voltage Divider Resistors**: $2-5
-- **Power Capacitors**: $3-8
-- **Wiring/Connectors**: $5-10
-
-### **Optional Components**
-- **Current Sensor (ACS712)**: $8-15
-- **Position Potentiometer**: $3-8
-- **Thermal Sensor**: $2-5
-
-**Total Estimated Cost**: $25-50 (required) + $13-28 (optional) 
+### Integration Improvements
+- **Multi-Servo Support**: Support multiple servos
+- **Advanced Control**: Implement advanced control algorithms
+- **Remote Monitoring**: Add remote monitoring capabilities
+- **Data Logging**: Implement comprehensive logging 

@@ -24,9 +24,9 @@ if __name__ == "__main__":
     # Connect camera manager to serial communication
     cam.serial = serial_comm
     
-    # Initialize radar tracking system
+    # Initialize radar tracking system (✅ motor_control parametresi eklendi)
     from simple_autonomous import SimpleAutonomousMode
-    autonomous_manager = SimpleAutonomousMode(serial_comm, laser_control, cam)
+    autonomous_manager = SimpleAutonomousMode(serial_comm, laser_control, cam, motor_control)
     
     # Start motor control loop
     motor_control.start_control_loop()

@@ -1,248 +1,254 @@
-# Simple Radar Tracker Integration Guide
+# Radar Integration Guide
 
 ## Overview
 
-The `SimpleRadarTracker` is a lightweight, effective system for radar-like scanning and target tracking. It's designed to work with your existing setup:
+This guide explains how to integrate radar-like scanning functionality into the Sunkar Defense System. The radar system provides autonomous scanning patterns for target detection and tracking.
 
-- **Stepper Motor**: Horizontal movement (0-300°)
-- **Servo Motor**: Vertical movement (0-60°) with laser mounted
-- **Camera**: Mounted on platform above laser
-- **YOLO Detection**: Red balloons = enemies, Blue balloons = allies
+## Components
 
-## Key Features
+### RadarTrackingSystem
+- **Purpose**: Low-level radar-like scanning and target tracking
+- **Features**:
+  - Multiple scanning patterns (radar sweep, spiral, sector scan, tracking)
+  - Real-time target detection and prioritization
+  - Motor control for servo and stepper motors
+  - Continuous scanning when no targets are detected
+  - Automatic target tracking when targets are found
 
-### 🎯 **Simple & Effective**
-- No complex PID controllers
-- Gentle movement to prevent overshooting
-- Easy to understand and modify
-
-### 📡 **Radar Scanning**
-- Horizontal sweep when no target detected
-- Configurable scan speed (0.5-3.0°/s)
-- Smooth back-and-forth movement
-
-### 🎯 **Target Tracking**
-- Automatically selects best red balloon target
-- Prioritizes larger, more centered targets
-- Smooth motor movement to keep target centered
-- Configurable movement speed (0.5-3.0°/update)
-
-## How It Works
-
-### 1. **Scanning Mode** (No Target)
-```
-📡 Horizontal sweep: 0° → 300° → 0° → 300°...
-   - Slow, smooth movement
-   - Servo stays at middle position (30°)
-   - Detects red balloons
-```
-
-### 2. **Tracking Mode** (Target Found)
-```
-🎯 When red balloon detected:
-   - Calculate target center in image
-   - Convert to motor angles
-   - Move motors smoothly to center target
-   - Keep tracking until target lost
-```
-
-### 3. **Target Selection**
-```
-🏆 Best target = (Size × 0.7) + (Center Proximity × 0.3)
-   - Larger balloons get higher priority
-   - More centered balloons get higher priority
-   - Prevents switching between multiple targets
-```
+### ScanMode Enum
+- **RADAR_SWEEP**: Horizontal sweeping pattern
+- **SPIRAL**: Spiral scanning pattern
+- **SECTOR**: Sector-based scanning
+- **TRACKING**: Direct target tracking
 
 ## Integration Steps
 
-### Step 1: Import the Module
+### 1. Initialize Radar System
 ```python
-from simple_radar_tracker import SimpleRadarTracker
+from radar_tracking_system import RadarTrackingSystem, ScanMode
+
+# Initialize radar system
+radar_system = RadarTrackingSystem(
+    motor_control=motor_control,
+    camera_manager=camera_manager,
+    serial_comm=serial_comm
+)
 ```
 
-### Step 2: Initialize Components
+### 2. Configure Scanning Parameters
 ```python
-# Your existing components
-serial_comm = SerialComm(port="COM14", protocol="text")
-camera_manager = CameraManager(serial_comm=serial_comm)
+# Set scan mode
+radar_system.set_scan_mode(ScanMode.SPIRAL)
 
-# New radar tracker
-radar_tracker = SimpleRadarTracker(serial_comm, camera_manager)
+# Set scan speed
+radar_system.set_scan_speed(2.0)  # degrees per second
+
+# Set movement speed
+radar_system.set_movement_speed(3.0)  # degrees per update
 ```
 
-### Step 3: Start the System
+### 3. Start Scanning
 ```python
-# Start camera manager (your existing code)
-camera_manager.start()
+# Start radar system
+radar_system.start()
 
-# Start radar tracker
-radar_tracker.start()
+# Update targets from camera
+radar_system.update_targets()
+
+# Get current scan position
+position = radar_system.get_current_position()
 ```
 
-### Step 4: Control Loop
+### 4. Target Tracking
 ```python
-try:
-    while True:
-        # Your existing GUI/display code here
-        # Radar tracker runs in background thread
-        
-        # Get status for display
-        status = radar_tracker.get_status()
-        print(f"Mode: {status['scan_mode']}, Target: {status['current_target']}")
-        
-        time.sleep(0.1)
-        
-except KeyboardInterrupt:
-    radar_tracker.stop()
-    camera_manager.stop()
+# Get current target
+target = radar_system.get_current_target()
+
+if target:
+    # Track target
+    radar_system.track_target(target)
+else:
+    # Continue scanning
+    radar_system.execute_scanning()
 ```
 
-## Configuration Options
+## Scanning Patterns
 
-### Scan Speed
+### Radar Sweep
+- Horizontal back-and-forth movement
+- Covers full horizontal range
+- Configurable speed and direction
+
+### Spiral Scan
+- Spiral pattern from center outward
+- Covers both horizontal and vertical axes
+- Auto-reset when reaching boundaries
+
+### Sector Scan
+- Scans specific angular sectors
+- Useful for focused area coverage
+- Configurable sector boundaries
+
+### Tracking Mode
+- Direct target tracking
+- Smooth motor movements
+- Automatic target prioritization
+
+## Motor Control Integration
+
+### Servo Motor (Vertical)
+- Range: 0-60 degrees
+- Center position: 30 degrees
+- Smooth movement with acceleration
+
+### Stepper Motor (Horizontal)
+- Range: 0-300 degrees
+- Center position: 150 degrees
+- Precise positioning control
+
+## Target Detection
+
+### Target Types
+- **ENEMY**: Red balloons (priority targets)
+- **FRIENDLY**: Blue balloons (avoid)
+- **UNKNOWN**: Unclassified targets
+
+### Target Prioritization
+1. **Enemy targets** (highest priority)
+2. **Closest to crosshair**
+3. **Highest confidence**
+4. **Largest size**
+
+## Configuration
+
+### Scan Parameters
 ```python
-radar_tracker.set_scan_speed(1.0)  # degrees per second
-# Range: 0.5 - 3.0
-# Lower = slower, smoother scanning
-# Higher = faster, more responsive
+# Radar sweep parameters
+sweep_speed = 2.0  # degrees per second
+sweep_direction = 1  # 1 for clockwise, -1 for counter-clockwise
+
+# Spiral parameters
+spiral_radius_step = 0.5
+spiral_angle_step = 0.1
+max_spiral_radius = 20
+
+# Movement parameters
+movement_speed = 3.0
+movement_interval = 0.03
+movement_tolerance = 1.0
 ```
 
-### Movement Speed
+### Motor Limits
 ```python
-radar_tracker.set_movement_speed(1.5)  # degrees per update
-# Range: 0.5 - 3.0
-# Lower = gentler, less overshooting
-# Higher = faster, more responsive
-```
+# Servo motor limits
+servo_min = 0
+servo_max = 60
 
-### Target Loss Timeout
-```python
-radar_tracker.target_lost_timeout = 3.0  # seconds
-# How long to wait before giving up on lost target
+# Stepper motor limits
+stepper_min = 0
+stepper_max = 300
 ```
 
 ## Safety Features
 
 ### Emergency Stop
-```python
-radar_tracker.emergency_stop()  # Centers motors immediately
-```
+- Immediately stops all movement
+- Resets to safe position
+- Disables all scanning
 
-### Reset Position
-```python
-radar_tracker.reset_position()  # Returns to safe starting position
-```
+### Position Limits
+- Respects motor boundaries
+- Prevents over-rotation
+- Safe movement ranges
 
-### Movement Limits
-- **Servo**: 0° - 60° (hardware limits)
-- **Stepper**: 0° - 300° (hardware limits)
-- **Movement Speed**: Limited to prevent overshooting
-- **Scan Speed**: Limited for smooth operation
+### Target Validation
+- Validates target before tracking
+- Checks target confidence
+- Ensures target is within range
+
+## Performance Optimization
+
+### For Better Coverage
+- Use spiral scan for comprehensive coverage
+- Increase scan speed for faster detection
+- Adjust sector boundaries for focused areas
+
+### For Better Accuracy
+- Reduce movement speed for precision
+- Increase movement tolerance
+- Use tracking mode for high-confidence targets
+
+### For Better Responsiveness
+- Decrease movement interval
+- Optimize target update frequency
+- Use predictive tracking
 
 ## Troubleshooting
 
-### Problem: Motors move too fast
-**Solution**: Reduce movement speed
+### Common Issues
+
+1. **Motors not moving**
+   - Check serial communication
+   - Verify motor connections
+   - Check motor limits
+
+2. **Scanning not working**
+   - Verify scan mode is set
+   - Check scan parameters
+   - Ensure radar system is started
+
+3. **Target tracking issues**
+   - Check camera feed
+   - Verify target detection
+   - Check tracking parameters
+
+4. **Performance issues**
+   - Reduce scan speed
+   - Increase movement interval
+   - Check system resources
+
+### Debug Information
+
+The system provides detailed logging:
+- `[RadarTracking]`: Radar system messages
+- `[MotorControl]`: Motor control messages
+- `[TargetDetection]`: Target detection messages
+
+## Integration with GUI
+
+### GUI Integration Methods
 ```python
-radar_tracker.set_movement_speed(1.0)  # Try lower value
+# Activate radar system
+radar_system.activate()
+
+# Deactivate radar system
+radar_system.deactivate()
+
+# Process frame from GUI
+target_info = radar_system.process_frame(frame, tracks)
+
+# Get status for GUI display
+status = radar_system.get_status()
 ```
 
-### Problem: Target tracking is jerky
-**Solution**: Reduce scan speed and movement speed
-```python
-radar_tracker.set_scan_speed(0.5)
-radar_tracker.set_movement_speed(0.8)
-```
+### Status Reporting
+- Current scan mode
+- Scan progress percentage
+- Target information
+- Motor positions
+- System status
 
-### Problem: System loses targets quickly
-**Solution**: Increase target loss timeout
-```python
-radar_tracker.target_lost_timeout = 5.0  # More seconds
-```
+## Future Enhancements
 
-### Problem: Not detecting targets
-**Solution**: Check camera and YOLO detection
-```python
-# Verify camera is working
-frame, tracks = camera_manager.get_frame()
-print(f"Detected {len(tracks)} objects")
-```
+### Planned Features
+- Machine learning-based target prediction
+- Advanced scanning algorithms
+- Multi-target tracking
+- Adaptive scanning patterns
+- Integration with external sensors
 
-## Performance Tips
-
-### 1. **Start with Conservative Settings**
-```python
-radar_tracker.set_scan_speed(0.8)    # Slow scanning
-radar_tracker.set_movement_speed(1.0) # Gentle movement
-```
-
-### 2. **Monitor Performance**
-```python
-status = radar_tracker.get_status()
-print(f"Current mode: {status['scan_mode']}")
-print(f"Motor positions: Servo={status['servo_angle']:.1f}°, Stepper={status['stepper_angle']:.1f}°")
-```
-
-### 3. **Fine-tune Based on Environment**
-- **Indoor**: Use slower speeds
-- **Outdoor**: Can use faster speeds
-- **Moving targets**: Increase movement speed
-- **Static targets**: Decrease movement speed
-
-## Integration with Your GUI
-
-The radar tracker works independently of your GUI. You can:
-
-1. **Display Status**: Show current mode and target info
-2. **Manual Override**: Allow manual control when needed
-3. **Settings Panel**: Let users adjust speeds
-4. **Emergency Controls**: Add emergency stop button
-
-## Example Integration
-
-```python
-# In your main.py or GUI
-from simple_radar_tracker import SimpleRadarTracker
-
-class YourGUI:
-    def __init__(self):
-        # Your existing initialization
-        self.radar_tracker = SimpleRadarTracker(serial_comm, camera_manager)
-        
-    def start_autonomous_mode(self):
-        self.radar_tracker.start()
-        
-    def stop_autonomous_mode(self):
-        self.radar_tracker.stop()
-        
-    def update_display(self):
-        status = self.radar_tracker.get_status()
-        # Update your GUI with status info
-        self.display_mode(status['scan_mode'])
-        self.display_target(status['current_target'])
-        self.display_motor_positions(status['servo_angle'], status['stepper_angle'])
-```
-
-## Testing
-
-Use the test script to verify everything works:
-
-```bash
-cd sunkar-defense-system/src
-python test_simple_radar.py
-```
-
-This will start the radar tracker and let you test all features interactively.
-
-## Summary
-
-The `SimpleRadarTracker` provides:
-- ✅ Simple, reliable radar scanning
-- ✅ Smooth target tracking
-- ✅ Prevents overshooting
-- ✅ Easy to integrate
-- ✅ Configurable parameters
-- ✅ Safety features
-
-It's designed to work with your existing system without requiring complex changes or PID tuning. 
+### Performance Improvements
+- Optimized motor control algorithms
+- Enhanced target detection accuracy
+- Improved scanning efficiency
+- Better resource utilization 

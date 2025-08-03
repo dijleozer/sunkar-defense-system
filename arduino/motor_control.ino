@@ -1,160 +1,157 @@
 #include <Arduino.h>
 #include <Servo.h>
 
-// Pin assignments
-const int servoPin = 9;      // FT5335M-FB signal
-const int stepPin = 3;       // A4988 STEP
-const int dirPin = 4;        // A4988 DIR
-const int laserPin = 5;      // Laser enable (HIGH=ON)
-const int estopPin = 7;      // Emergency stop button (active LOW)
+// === Servo Ayarları ===
+Servo servo;
+const int servoPin = 9;
+const int servoMinAngle = 0;
+const int servoMaxAngle = 60;
+int currentServoAngle = servoMinAngle;
+int targetServoAngle = servoMinAngle;
 
-// Servo (pitch) parameters
-const int servoMinPulse = 900;   // µs
-const int servoMaxPulse = 2100;  // µs
-const int pitchMin = 0;          // deg
-const int pitchMax = 60;         // deg
+// === Step Motor (A4988) Ayarları ===
+#define STEP_PIN 2
+#define DIR_PIN 3
+#define ENABLE_PIN 4
+const int stepsPerRevolution = 200;
+const int stepperMinAngle = 0;
+const int stepperMaxAngle = 300;
+const int stepDelay = 1000;            // Slower but more stable
+const int maxStepIncrement = 12;        // Larger steps for smoother movement
+float currentStepperAngle = stepperMinAngle;
+float targetStepperAngle = stepperMinAngle;
 
-// Stepper (yaw) parameters
-const int stepsPerRev = 200;     // NEMA 17, adjust if microstepping
-const float yawMin = 0.0;        // deg
-const float yawMax = 270.0;      // deg
-const float noFireZoneMin = -15.0; // deg
-const float noFireZoneMax =  15.0; // deg
+// === Anti-Jitter Filtreleme ===
+const float angleTolerance = 3.0;      // Smaller tolerance for more precise control
+const unsigned long minCommandInterval = 100;  // Faster response
+unsigned long lastStepperCommand = 0;
+int lastTargetStepperAngle = -1;
 
-// State variables
-float currentYaw = 0.0;          // deg
-int currentPitch = 0;            // deg
-bool firing = false;
-bool estop = false;
+// === Lazer Ayarı ===
+const int lazerPin = 6;
 
-// Stepper tracking
-long currentStep = 0;
-const float degPerStep = (yawMax - yawMin) / stepsPerRev; // adjust if microstepping
-
-Servo pitchServo;
+// === Protokol Tanımları ===
+#define START_BYTE 0xAA
+#define END_BYTE 0x55
+#define SERVO_CMD 0x01
+#define STEPPER_CMD 0x02
+#define LASER_CMD 0x03
 
 void setup() {
-  Serial.begin(115200);
-  pitchServo.attach(servoPin, servoMinPulse, servoMaxPulse);
-  pinMode(stepPin, OUTPUT);
-  pinMode(dirPin, OUTPUT);
-  pinMode(laserPin, OUTPUT);
-  pinMode(estopPin, INPUT_PULLUP);
-  digitalWrite(laserPin, LOW);
-  movePitch(pitchMin); // Initialize at 0°
-  moveYaw(yawMin);     // Initialize at 0°
+  servo.attach(servoPin);
+  servo.write(currentServoAngle);
+
+  pinMode(STEP_PIN, OUTPUT);
+  pinMode(DIR_PIN, OUTPUT);
+  pinMode(ENABLE_PIN, OUTPUT);
+  digitalWrite(ENABLE_PIN, LOW);  // Enable stepper motor permanently
+
+  pinMode(lazerPin, OUTPUT);
+  digitalWrite(lazerPin, LOW);
+
+  Serial.begin(9600);
+  Serial.println("Integrated Servo + Step + Lazer kontrol sistemi hazır.");
 }
 
 void loop() {
-  // Emergency stop check
-  if (digitalRead(estopPin) == LOW) {
-    estop = true;
-    stopAll();
-    Serial.println("ESTOP");
-    while (digitalRead(estopPin) == LOW) delay(10); // Wait for button release
+  if (Serial.available() > 0) {
+    if (Serial.peek() == 'S' || Serial.peek() == 'M' || Serial.peek() == 'a' || Serial.peek() == 'p') {
+      processTextCommand();
+    }
+    else if (Serial.peek() == START_BYTE) {
+      processBinaryCommand();
+    }
   }
 
-  if (estop) {
-    // Wait for reset command
-    if (Serial.available()) {
-      String cmd = Serial.readStringUntil('\n');
-      cmd.trim();
-      if (cmd == "RESET") {
-        estop = false;
-        pitchServo.attach(servoPin, servoMinPulse, servoMaxPulse);
-        Serial.println("RESET OK");
+  moveStepperToAngle(targetStepperAngle);
+  moveServoToAngle(targetServoAngle);
+  
+  delay(10);  // Faster loop for better responsiveness
+}
+
+void processTextCommand() {
+  String input = Serial.readStringUntil('\n');
+  input.trim();
+
+  if (input.startsWith("S")) {
+    int angle = input.substring(1).toInt();
+    targetServoAngle = constrain(angle, servoMinAngle, servoMaxAngle);
+  } else if (input.startsWith("M")) {
+    int angle = input.substring(1).toInt();
+    // Improved anti-jitter filtering for stepper
+    if (abs(angle - lastTargetStepperAngle) > angleTolerance || 
+        (millis() - lastStepperCommand) > minCommandInterval) {
+      targetStepperAngle = constrain(angle, stepperMinAngle, stepperMaxAngle);
+      lastTargetStepperAngle = angle;
+      lastStepperCommand = millis();
+    }
+  } else if (input == "a") {
+    digitalWrite(lazerPin, HIGH);
+  } else if (input == "p") {
+    digitalWrite(lazerPin, LOW);
+  }
+}
+
+void processBinaryCommand() {
+  if (Serial.available() >= 4) {
+    if (Serial.read() == START_BYTE) {
+      byte cmd = Serial.read();
+      byte data = Serial.read();
+      if (Serial.read() == END_BYTE) {
+        switch (cmd) {
+          case SERVO_CMD:
+            targetServoAngle = constrain(data, servoMinAngle, servoMaxAngle);
+            break;
+          case STEPPER_CMD:
+            // Improved anti-jitter filtering for stepper
+            if (abs(data - lastTargetStepperAngle) > angleTolerance || 
+                (millis() - lastStepperCommand) > minCommandInterval) {
+              targetStepperAngle = constrain(data, stepperMinAngle, stepperMaxAngle);
+              lastTargetStepperAngle = data;
+              lastStepperCommand = millis();
+            }
+            break;
+          case LASER_CMD:
+            digitalWrite(lazerPin, (data > 0) ? HIGH : LOW);
+            break;
+        }
       }
     }
-    return;
-  }
-
-  // Serial command handling
-  if (Serial.available()) {
-    String cmd = Serial.readStringUntil('\n');
-    cmd.trim();
-    handleCommand(cmd);
   }
 }
 
-void handleCommand(String cmd) {
-  if (cmd.startsWith("YAW:")) {
-    float targetYaw = cmd.substring(4).toFloat();
-    if (targetYaw >= yawMin && targetYaw <= yawMax) {
-      moveYaw(targetYaw);
-      Serial.print("YAW_OK:");
-      Serial.println(targetYaw);
-    } else {
-      Serial.println("ERR:YAW_RANGE");
-    }
-  } else if (cmd.startsWith("PITCH:")) {
-    int targetPitch = cmd.substring(6).toInt();
-    if (targetPitch >= pitchMin && targetPitch <= pitchMax) {
-      movePitch(targetPitch);
-      Serial.print("PITCH_OK:");
-      Serial.println(targetPitch);
-    } else {
-      Serial.println("ERR:PITCH_RANGE");
-    }
-  } else if (cmd.startsWith("FIRE:")) {
-    int fireCmd = cmd.substring(5).toInt();
-    setFiring(fireCmd == 1);
-    Serial.print("FIRE_OK:");
-    Serial.println(fireCmd);
-  } else if (cmd == "ESTOP") {
-    estop = true;
-    stopAll();
-    Serial.println("ESTOP");
-  } else if (cmd == "STATUS") {
-    sendStatus();
-  } else {
-    Serial.println("ERR:UNKNOWN_CMD");
+void moveServoToAngle(int targetAngle) {
+  targetAngle = constrain(targetAngle, servoMinAngle, servoMaxAngle);
+  if (currentServoAngle != targetAngle) {
+    currentServoAngle += (currentServoAngle < targetAngle) ? 1 : -1;
+    servo.write(currentServoAngle);
+    delay(20);
   }
 }
 
-void moveYaw(float targetYaw) {
-  // Convert angle to steps
-  long targetStep = (long)((targetYaw - yawMin) / (yawMax - yawMin) * stepsPerRev);
-  long delta = targetStep - currentStep;
-  if (delta == 0) return;
-  digitalWrite(dirPin, delta > 0 ? HIGH : LOW);
-  for (long i = 0; i < abs(delta); i++) {
-    digitalWrite(stepPin, HIGH);
-    delayMicroseconds(800); // adjust for speed
-    digitalWrite(stepPin, LOW);
-    delayMicroseconds(800);
+void moveStepperToAngle(float targetAngle) {
+  targetAngle = constrain(targetAngle, stepperMinAngle, stepperMaxAngle);
+  float angleDiff = targetAngle - currentStepperAngle;
+  
+  // Smaller tolerance for more precise control
+  if (abs(angleDiff) < angleTolerance) return;
+
+  bool direction = (angleDiff > 0) ? HIGH : LOW;
+  digitalWrite(DIR_PIN, direction);
+
+  // Calculate steps with larger increments for smoother movement
+  int stepsToMove = min(abs(angleDiff), maxStepIncrement) * stepsPerRevolution / 360.0;
+  if (stepsToMove == 0) stepsToMove = 1;
+
+  // Smooth stepping with proper timing
+  for (int i = 0; i < stepsToMove; i++) {
+    digitalWrite(STEP_PIN, HIGH);
+    delayMicroseconds(stepDelay);
+    digitalWrite(STEP_PIN, LOW);
+    delayMicroseconds(stepDelay);
   }
-  currentStep = targetStep;
-  currentYaw = yawMin + (float)currentStep * (yawMax - yawMin) / stepsPerRev;
-}
 
-void movePitch(int targetPitch) {
-  int pulse = map(targetPitch, pitchMin, pitchMax, servoMinPulse, servoMaxPulse);
-  pitchServo.writeMicroseconds(pulse);
-  currentPitch = targetPitch;
-}
-
-void setFiring(bool enable) {
-  // Only allow firing if not in no-fire zone
-  if (currentYaw > noFireZoneMin && currentYaw < noFireZoneMax) {
-    digitalWrite(laserPin, LOW); // No fire
-    firing = false;
-  } else {
-    digitalWrite(laserPin, enable ? HIGH : LOW);
-    firing = enable;
-  }
-}
-
-void stopAll() {
-  digitalWrite(laserPin, LOW);
-  firing = false;
-  // Optionally detach servo for safety
-  pitchServo.detach();
-  // Stepper: no action needed (no holding torque)
-}
-
-void sendStatus() {
-  Serial.print("YAW:"); Serial.print(currentYaw);
-  Serial.print(";PITCH:"); Serial.print(currentPitch);
-  Serial.print(";FIRE:"); Serial.print(firing ? 1 : 0);
-  Serial.print(";ESTOP:"); Serial.println(estop ? 1 : 0);
+  float stepMovedAngle = (stepsToMove * 360.0 / stepsPerRevolution);
+  currentStepperAngle += direction == HIGH ? stepMovedAngle : -stepMovedAngle;
+  currentStepperAngle = constrain(currentStepperAngle, stepperMinAngle, stepperMaxAngle);
 }

@@ -4,7 +4,7 @@ import math
 from serial_comm import SerialComm
 
 class JoystickController:
-    def __init__(self, serial_comm=None, port="COM4", mode="manual", protocol="text"):
+    def __init__(self, serial_comm=None, port="COM14", mode="manual", protocol="text"):
         # Use shared serial connection if provided, otherwise create new one
         if serial_comm:
             self.serial = serial_comm
@@ -48,11 +48,11 @@ class JoystickController:
         self.last_fire_button_state = False
         self.fire_button_pressed = False
 
-        # === ACCELERATION-BASED CONTROL PARAMETERS ===
+        # === IMPROVED ACCELERATION-BASED CONTROL PARAMETERS ===
         self.max_velocity_servo = 30.0   # degrees per second
-        self.max_velocity_stepper = 150.0  # degrees per second
-        self.acceleration_rate = 2.0    # Multiplier for acceleration
-        self.deceleration_rate = 0.8    # Multiplier for deceleration
+        self.max_velocity_stepper = 120.0  # Reduced for smoother control
+        self.acceleration_rate = 1.5    # Reduced for gentler acceleration
+        self.deceleration_rate = 0.7    # Faster deceleration for better stopping
         
         # Current velocities and positions
         self.current_servo_velocity = 0.0
@@ -63,9 +63,14 @@ class JoystickController:
         # Time tracking for velocity calculations
         self.last_update_time = time.time()
         
-        # Exponential response curve parameters
-        self.response_curve_power = 2.0  # Higher = more sensitive to small movements
-        self.min_velocity_threshold = 0.1  # Minimum velocity to start moving
+        # Improved response curve parameters
+        self.response_curve_power = 1.8  # Reduced for less aggressive response
+        self.min_velocity_threshold = 0.05  # Lower threshold for more responsive start
+        
+        # Position holding parameters
+        self.stepper_holding_enabled = True
+        self.last_joystick_input = 0.0
+        self.stepper_movement_active = False
 
         pygame.init()
         pygame.joystick.init()
@@ -167,7 +172,7 @@ class JoystickController:
         return int(self.current_servo_position)
 
     def get_stepper_angle_acceleration(self):
-        """Get stepper angle using acceleration-based control."""
+        """Get stepper angle using improved acceleration-based control with position holding."""
         if not self.joystick:
             return int(self.current_stepper_position)
             
@@ -178,15 +183,34 @@ class JoystickController:
         # Calculate time delta
         current_time = time.time()
         dt = current_time - self.last_update_time
+        self.last_update_time = current_time
         
-        # Calculate target velocity from joystick input
-        target_velocity = self.calculate_target_velocity(x, self.max_velocity_stepper)
+        # Check if joystick is being moved
+        joystick_moving = abs(x) > 0.01
+        self.stepper_movement_active = joystick_moving
         
-        # Update velocity and position
-        self.current_stepper_velocity, self.current_stepper_position = self.update_velocity_and_position(
-            target_velocity, self.current_stepper_velocity, self.current_stepper_position,
-            self.max_velocity_stepper, self.stepper_min, self.stepper_max, dt
-        )
+        if joystick_moving:
+            # Calculate target velocity based on joystick position
+            # More proportional to joystick position
+            target_velocity = self.calculate_target_velocity(x, self.max_velocity_stepper)
+            
+            # Update velocity and position with acceleration
+            self.current_stepper_velocity, self.current_stepper_position = self.update_velocity_and_position(
+                target_velocity, self.current_stepper_velocity, self.current_stepper_position,
+                self.max_velocity_stepper, self.stepper_min, self.stepper_max, dt
+            )
+            
+            self.last_joystick_input = x
+        else:
+            # Joystick released - gradually stop movement
+            if abs(self.current_stepper_velocity) > 0.1:
+                # Apply deceleration to stop smoothly
+                self.current_stepper_velocity *= 0.8  # Gradual deceleration
+                self.current_stepper_position += self.current_stepper_velocity * dt
+                self.current_stepper_position = max(self.stepper_min, min(self.stepper_max, self.current_stepper_position))
+            else:
+                # Fully stopped - hold position
+                self.current_stepper_velocity = 0.0
         
         return int(self.current_stepper_position)
 
@@ -296,12 +320,34 @@ class JoystickController:
                 self.last_sent_servo = angle_servo
                 self.last_servo_time = now
 
-        # === Stepper Açı Gönderimi (from working code) ===
+        # === Stepper Açı Gönderimi (IMPROVED ACCELERATION CONTROL) ===
         if self.stepper_active:
             angle_stepper = self.get_stepper_angle()
-            if angle_stepper != self.last_sent_stepper and (now - self.last_stepper_time) > 0.1:
-                self.serial.send_command(self.STEPPER_CMD, angle_stepper)
-                print(f"[JoystickController] Stepper açı: {angle_stepper}")
+            
+            # Enhanced acceleration-based filtering
+            angle_diff = abs(angle_stepper - self.last_sent_stepper)
+            time_since_last = now - self.last_stepper_time
+            
+            # More responsive control with acceleration-based movement
+            # Send command if:
+            # 1. Angle changed significantly (> 2 degrees for more responsive control)
+            # 2. OR enough time has passed (> 150ms for smooth updates)
+            # 3. AND minimum time between commands (> 80ms for faster response)
+            should_send = (angle_diff > 2.0 or time_since_last > 0.15) and time_since_last > 0.08
+            
+            if should_send and angle_stepper != self.last_sent_stepper:
+                # Round to nearest integer to avoid floating point issues
+                rounded_angle = int(round(angle_stepper))
+                self.serial.send_command(self.STEPPER_CMD, rounded_angle)
+                
+                # Enhanced status reporting
+                status_msg = f"Stepper: {rounded_angle}°"
+                if self.stepper_movement_active:
+                    status_msg += f" (Moving, Vel: {self.current_stepper_velocity:.1f}°/s)"
+                else:
+                    status_msg += " (Holding)"
+                print(f"[JoystickController] {status_msg}")
+                
                 self.last_sent_stepper = angle_stepper
                 self.last_stepper_time = now
 

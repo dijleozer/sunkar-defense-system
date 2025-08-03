@@ -104,49 +104,9 @@ class RadarTrackingSystem:
                 
     def _update_targets(self):
         """Update target list from camera detections."""
-        if not hasattr(self.camera_manager, 'tracks'):
-            return
-            
-        current_time = time.time()
-        new_targets = []
-        
-        # Get current detections
-        tracks = self.camera_manager.tracks if hasattr(self.camera_manager, 'tracks') else []
-        
-        for track in tracks:
-            if track.get('label', '').lower() == 'red':  # Only track red balloons (enemies)
-                bbox = track['bbox']
-                center = ((bbox[0] + bbox[2]) // 2, (bbox[1] + bbox[3]) // 2)
-                
-                # Calculate priority based on confidence and size
-                confidence = track.get('confidence', 0.0)
-                size = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
-                
-                # Higher confidence and larger size = higher priority
-                priority = int(confidence * 100) + (size // 1000)
-                
-                target = Target(
-                    track_id=track['track_id'],
-                    bbox=bbox,
-                    label=track['label'],
-                    confidence=confidence,
-                    center=center,
-                    last_seen=current_time,
-                    priority=priority
-                )
-                new_targets.append(target)
-        
-        # Update target list
-        self.targets = new_targets
-        
-        # Select highest priority target
-        if self.targets:
-            self.current_target = max(self.targets, key=lambda t: t.priority)
-            self.scan_mode = ScanMode.TRACKING
-        else:
-            self.current_target = None
-            if self.scan_mode == ScanMode.TRACKING:
-                self.scan_mode = ScanMode.RADAR_SWEEP
+        # This method is now handled by SimpleAutonomousMode.process_frame()
+        # The targets are updated directly from the GUI's track data
+        pass
                 
     def _execute_scanning(self):
         """Execute current scanning mode."""

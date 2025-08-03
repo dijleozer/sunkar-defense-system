@@ -69,8 +69,8 @@ class CameraManager:
                 self.frame = processed_frame
                 self.tracks = tracks
 
-            # İstersen buraya sleep koyabilirsin örn. 30 FPS sınırı için:
-            time.sleep(0.03)
+            # MUCH SLOWER for YOLO detection - 10 FPS instead of 30 FPS
+            time.sleep(0.1)  # 10 FPS for better YOLO detection
             
     def set_autonomous_start_position(self):
         """Set camera to optimal starting position for autonomous mode with verification."""
